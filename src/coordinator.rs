@@ -281,25 +281,9 @@ impl Coordinator {
             .map(|c| c.guild_id)
             .collect();
         if guilds.is_empty() {
-            let _: SetGuildMembershipLockResponse = self
-                .private(
-                    "SetGuildMembershipLock",
-                    SetGuildMembershipLockRequest {
-                        guild_id: excluded,
-                        locked: Some(false),
-                    },
-                )
-                .await?;
-            let _: ClearGuildBattleExcludedGuildsResponse = self
-                .private(
-                    "ClearGuildBattleExcludedGuilds",
-                    ClearGuildBattleExcludedGuildsRequest {
-                        target_date,
-                        start_time: Some(slot),
-                    },
-                )
-                .await?;
-            return Err(Failure::CONFLICT);
+            return self
+                .finish_empty_slot(target_date, slot, now, excluded)
+                .await;
         }
         let battles = crate::matching::pairs(guilds, ymd, slot, now)?;
         let _: SaveScheduledGuildBattlesResponse = self
@@ -309,6 +293,45 @@ impl Coordinator {
                     target_date,
                     start_time: Some(slot),
                     battles,
+                },
+            )
+            .await?;
+        Ok(())
+    }
+    async fn finish_empty_slot(
+        &self,
+        target_date: u64,
+        slot: i32,
+        now: u64,
+        excluded: Vec<u64>,
+    ) -> Result<(), Failure> {
+        let _: SetGuildMembershipLockResponse = self
+            .private(
+                "SetGuildMembershipLock",
+                SetGuildMembershipLockRequest {
+                    guild_id: excluded,
+                    locked: Some(false),
+                },
+            )
+            .await?;
+        let _: SaveErrorLogResponse = self
+            .private(
+                "SaveErrorLog",
+                SaveErrorLogRequest {
+                    time: now,
+                    guild_battle_id: 0,
+                    error_log: format!(
+                        "No populated guilds for matching; target_date={target_date}; slot={slot}"
+                    ),
+                },
+            )
+            .await?;
+        let _: ClearGuildBattleExcludedGuildsResponse = self
+            .private(
+                "ClearGuildBattleExcludedGuilds",
+                ClearGuildBattleExcludedGuildsRequest {
+                    target_date,
+                    start_time: Some(slot),
                 },
             )
             .await?;
